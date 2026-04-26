@@ -30,118 +30,94 @@
 // app.Run();
 
 
-
-using Microsoft.EntityFrameworkCore;
-using Microsoft.AspNetCore.RateLimiting;
+using MyProject.Server.Api.Endpoints;
+using MyProject.Server.Api.Middleware;
+using MyProject.Server.Application;
+using MyProject.Server.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Diagnostics.HealthChecks; // FR015: Required for HealthCheckOptions
-using System.Security.Claims;
-using MyProject.Server.Infrastructure.Data;
-using MyProject.Server.Application.Services;
-using MyProject.Server.Dtos;
-using MyProject.Server.Api.Endpoints; // FR014: For the Map extension methods
-using Scalar.AspNetCore; // FR001: Required for MapScalarApiReference
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.RateLimiting; // Added for AddFixedWindowLimiter
+using System.Text;
+using System.Threading.RateLimiting;
+using Scalar.AspNetCore;
 
-
-// FR001: Bootstrap Minimal API
 var builder = WebApplication.CreateBuilder(args);
 
-// FR002: EF Core SQLite registration
-builder.Services.AddDbContext<AppDbContext>(opt => 
-    opt.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection") ?? "Data Source=challenge.db"));
+// FR002: EF Core + SQLite
+builder.Services.AddDbContext<AppDbContext>(opt => opt.UseSqlite("Data Source=challenge.db"));
 
-// FR016: Rate Limiting (Writes)
-builder.Services.AddRateLimiter(options => {
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.AddFixedWindowLimiter("write-policy", opt => {
-        opt.PermitLimit = 5;
-        opt.Window = TimeSpan.FromMinutes(1);
+// FR005: Auth & JWT
+builder.Services.AddScoped<AuthService>();
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(opt => {
+    opt.TokenValidationParameters = new TokenValidationParameters {
+        ValidateIssuer = true, 
+        ValidateAudience = true, 
+        ValidateLifetime = true,
+        ValidIssuer = builder.Configuration["Jwt:Issuer"],
+        ValidAudience = builder.Configuration["Jwt:Audience"],
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+    };
+});
+builder.Services.AddAuthorization();
+
+// FR016: Rate Limiting
+builder.Services.AddRateLimiter(opt => {
+    opt.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    
+    // POSTs = 5/min
+    opt.AddFixedWindowLimiter("write", o => { 
+        o.PermitLimit = 5; 
+        o.Window = TimeSpan.FromMinutes(1); 
+        o.QueueLimit = 0;
     });
-    options.AddFixedWindowLimiter("progress-policy", opt => {
-        opt.PermitLimit = 10;
-        opt.Window = TimeSpan.FromMinutes(1);
+    
+    // Progress POST = 10/min
+    opt.AddFixedWindowLimiter("progress", o => { 
+        o.PermitLimit = 10; 
+        o.Window = TimeSpan.FromMinutes(1); 
+        o.QueueLimit = 0;
     });
 });
 
-// FR015: Observability
-// builder.Services.AddHealthChecks().AddSqlite("challenge.db");
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
-                       ?? "Data Source=challenge.db";
-builder.Services.AddHealthChecks().AddSqlite(connectionString);
+// FR015: Health Checks (Requires EF Core HealthCheck Package)
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<AppDbContext>("database");
 
-builder.Services.AddOpenApi(); // Scalar/OpenAPI
-
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(/* JWT Setup */);
-builder.Services.AddAuthorization();
-builder.Services.AddScoped<ChallengeService>();
-builder.Services.AddCors();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// FR013: Global Exception Handler (ProblemDetails)
-app.UseExceptionHandler(err => err.Run(async ctx => {
-    ctx.Response.StatusCode = 500;
-    await ctx.Response.WriteAsJsonAsync(new ProblemDetails { 
-        Status = 500, Title = "Internal Server Error", Detail = "Contact support." 
-    });
-}));
+// FR013: Global Exception Handler
+app.UseMiddleware<ExceptionMiddleware>();
 
-// 2. Security & Traffic Control (Must be before Endpoints)
-// app.UseCors("DefaultPolicy");
-app.UseCors(policy => policy
-    .WithOrigins("http://localhost:5173") // Your frontend URL
-    .AllowAnyHeader()
-    .AllowAnyMethod());
-app.UseRateLimiter();      // FR016: Crucial for your policies to actually apply
-app.UseAuthentication();   // FR005: Required to identify the user
-app.UseAuthorization();    // FR005: Required to check permissions
-
-// FR015: Health Endpoints
-app.MapHealthChecks("/health").AllowAnonymous();
-// app.MapHealthChecks("/ready").AllowAnonymous();
-app.MapHealthChecks("/ready", new HealthCheckOptions 
-{
-    Predicate = _ => true // Readiness (DB is connected)
-}).AllowAnonymous();
-
-app.MapAuthEndpoints();
-app.MapLeaderboardEndpoints();
-
-// Challenges (FR006)
-var challengeGroup = app.MapGroup("/challenges")
-    .RequireAuthorization()
-    .RequireRateLimiting("write-policy"); 
-
-// Progress (FR009 - note the specific policy)
-var progressGroup = app.MapGroup("/progress-entries")
-    .RequireAuthorization()
-    .RequireRateLimiting("progress-policy");
-
-// FR004: Migrations & Seeding (Dev only)
-if (app.Environment.IsDevelopment()) 
-{
+if (app.Environment.IsDevelopment()) {
     app.MapOpenApi();
-    // using Scalar:
-    app.MapScalarApiReference(); 
-
+    app.MapScalarApiReference();
+    
+    // FR004: Migrations & Seeding
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    
-    // Create/Update the challenge.db file
-    db.Database.Migrate(); 
-    
-    // Fill it with initial data
-    SeedData.Initialize(db);
+    await DbInitializer.SeedAsync(db);
 }
+
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseRateLimiter(); // FR016: Ensure Rate Limiting middleware is active
+
+// FR015: Observability Endpoints (Exempt from Rate Limiting by not applying policy)
+app.MapHealthChecks("/health");
+app.MapHealthChecks("/ready");
+
+// Map Layered Endpoints
+app.MapAuthEndpoints();
+app.MapChallengeEndpoints();
+app.MapProgressEndpoints();
+app.MapMembershipEndpoints();
 
 app.Run();
 
-// Summary:
-// FR009/FR010: Progress logic checks the 24h window for edits and the "one entry per day" constraint.
-// FR012/FR013: All errors return ProblemDetails. Validation is handled via Data Annotations/Filters.
-// FR014: Folders strictly separate Api (Endpoints), Application (Business logic), and Infrastructure (Data/Auth).
-// FR016: Rate limits differentiate between standard writes (5/min) and progress logs (10/min).
 
 
 
