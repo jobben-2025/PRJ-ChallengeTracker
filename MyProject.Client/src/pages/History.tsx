@@ -1,62 +1,57 @@
-import { useState } from 'react';
-import { Challenge } from '../types';
+import { ChallengeCard } from "../components/ChallengeCard";
+import { useJoinedChallenges } from "../data/challengeQueries";
+import { useMemo } from "react";
 
 export const History = () => {
-  // Testdaten (Später kommen diese mit einem Filter vom C# Backend)
-  const [completedChallenges] = useState<Challenge[]>([]);
+  const { data: joined = [], isLoading } = useJoinedChallenges();
+
+  const prepareData = (c: any) => {
+    const entries = c.progressEntries || c.ProgressEntries || [];
+    const daysActive = entries.reduce(
+      (sum: number, e: any) => sum + Number(e.amount || e.Amount || 0),
+      0,
+    );
+
+    let goal = 30;
+    if (c.startDate && c.endDate) {
+      const start = new Date(c.startDate);
+      const end = new Date(c.endDate);
+      goal =
+        Math.ceil(
+          Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
+        ) || 30;
+    }
+
+    const isFinished =
+      c.status === "Completed" || c.status === 2 || daysActive >= goal;
+    return { ...c, daysActive, goalDays: goal, isCompleted: isFinished };
+  };
+
+  const completedChallenges = useMemo(
+    () => joined.map(prepareData).filter((c) => c.isCompleted),
+    [joined],
+  );
 
   return (
     <div className="max-w-5xl mx-auto p-8">
-      <div className="mb-10">
-        <h1 className="text-3xl font-black text-slate-900">Deine Erfolge</h1>
-        <p className="text-slate-500">Here your all completed challenges.</p>
-      </div>
-
+      <h1 className="text-3xl font-black text-slate-900 mb-8">Your Success</h1>
       <div className="space-y-4">
         {completedChallenges.map((c) => (
           <div
             key={c.id}
-            className="flex items-center justify-between p-6 bg-white border border-emerald-100 rounded-2xl shadow-sm hover:shadow-md transition-all"
+            className="p-6 bg-white border border-emerald-100 rounded-2xl flex justify-between items-center shadow-sm"
           >
-            <div className="flex items-center gap-4">
-              {/* Grüner Haken Badge */}
-              <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center">
-                <svg
-                  xmlns="http://w3.org"
-                  className="h-6 w-6"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={3}
-                    d="M5 13l4 4L19 7"
-                  />
-                </svg>
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-800">{c.title}</h3>
-                <p className="text-sm text-slate-500">
-                  {c.daysActive} Tage erfolgreich durchgehalten
-                </p>
-              </div>
+            <div>
+              <h3 className="font-bold text-slate-800">{c.title}</h3>
+              <p className="text-sm text-slate-500">
+                {c.daysActive} Days masterd
+              </p>
             </div>
-
-            <span className="px-4 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-full uppercase tracking-widest">
-              Abgeschlossen
+            <span className="bg-emerald-100 text-emerald-700 px-4 py-1 rounded-full text-xs font-bold uppercase">
+              Completed
             </span>
           </div>
         ))}
-
-        {completedChallenges.length === 0 && (
-          <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-slate-200">
-            <p className="text-slate-400 font-medium">
-              Noch keine abgeschlossenen Challenges. Gib Gas!
-            </p>
-          </div>
-        )}
       </div>
     </div>
   );

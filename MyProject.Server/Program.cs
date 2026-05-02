@@ -41,11 +41,18 @@ using Microsoft.AspNetCore.RateLimiting; // Added for AddFixedWindowLimiter
 using System.Text;
 using System.Threading.RateLimiting;
 using Scalar.AspNetCore;
+using System.Text.Json.Serialization; // Adil Code
+
 
 var builder = WebApplication.CreateBuilder(args);
 
 // FR002: EF Core + SQLite
 builder.Services.AddDbContext<AppDbContext>(opt => opt.UseSqlite("Data Source=challenge.db"));
+
+//Adil Code
+builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =>
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+
 
 // FR005: Auth & JWT
 builder.Services.AddScoped<AuthService>();
@@ -80,17 +87,35 @@ builder.Services.AddRateLimiter(opt => {
     });
 });
 
+// Adil access to backend
+builder.Services.AddCors(options => {
+    options.AddPolicy("MyReactApp", policy => {
+        policy.WithOrigins("http://localhost:5173")
+              .AllowAnyHeader()  // Erlaubt Authorization Header
+              .AllowAnyMethod()
+              .AllowCredentials(); // Erlaubt Authentifizierungs-Kontext
+    });
+});
+
+
 // FR015: Health Checks (Requires EF Core HealthCheck Package)
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<AppDbContext>("database");
-
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
+
 // FR013: Global Exception Handler
 app.UseMiddleware<ExceptionMiddleware>();
+// zwei Zeil Adil UseRouting() und UseCors()
+app.UseRouting(); 
+app.UseCors("MyReactApp");
+
+app.MapDelete("/test-delete", () => Results.Ok("Delete funktioniert!")).AllowAnonymous();
+
+
 
 if (app.Environment.IsDevelopment()) {
     app.MapOpenApi();
@@ -101,6 +126,8 @@ if (app.Environment.IsDevelopment()) {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await DbInitializer.SeedAsync(db);
 }
+
+
 
 app.UseAuthentication();
 app.UseAuthorization();

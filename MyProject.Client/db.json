@@ -1,0 +1,13 @@
+{
+  "challenges": [
+    {
+      "title": "Java lernen",
+      "description": "Java lernen in 3 Wochen",
+      "goalDays": 30,
+      "id": "zSKotPs-wi4",
+      "daysActive": 30,
+      "isCompleted": true
+    }
+  ],
+  "$schema": "./node_modules/json-server/schema.json"
+}

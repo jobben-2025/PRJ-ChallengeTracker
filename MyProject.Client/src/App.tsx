@@ -1,64 +1,48 @@
-import './App.css';
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+} from "react-router-dom";
 
-import { BrowserRouter as Router, Routes, Route } from 'react-router';
-import { Navbar } from './Components/Navbar';
-import Dashboard from './pages/Dashboard';
-import { ChallengeDetail } from './pages/ChallengeDetail';
-import { AddChallenge } from './Components/AddChallenge';
-import { useState } from 'react';
-import type { Challenge } from './types';
-import { History } from './pages/History';
+import { AuthProvider } from "./context/AuthContext";
+import { ProtectedRoute } from "./layouts/ProtectedRoute";
+import { MainLayout } from "./layouts/MainLayout";
+import { Dashboard } from "./pages/Dashboard";
+import { Welcome } from "./pages/Welcome";
+import { Login } from "./pages/Login";
+import { RegisterForm } from "./pages/RegisterForm";
 
-const APP_API_URL = 'The Api Frontend';
+import { CreateChallenge } from "./pages/CreateChallenge";
+import { History } from "./pages/History";
+import { ChallengeDetail } from "./pages/ChallengeDetail";
 
-function App() {
-  const [challenges, setChallenges] = useState<Challenge[]>([]);
-
-  const handleAddChallenge = (newCh: Omit<Challenge, 'id'>) => {
-    const challengeWithId = { ...newCh, id: Math.random() }; // Temporäre ID
-    setChallenges((prev) => [...prev, challengeWithId]); // State aktualisieren
-  };
-
-  const updateChallengeDays = (id: number) => {
-    setChallenges((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? { ...c, daysActive: Math.min(c.daysActive + 1, c.goalDays) }
-          : c,
-      ),
-    );
-  };
+export function App() {
   return (
-    <>
+    <AuthProvider>
       <Router>
-        <div className="min-h-screen bg-gray-50">
-          <Navbar />
+        <Routes>
+          {/* --- ÖFFENTLICHE ROUTEN --- */}
+          <Route path="/" element={<Welcome />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<RegisterForm />} />
 
-          <main className="max-w-7xl mx-auto py-6">
-            <Routes>
-              <Route path="/" element={<Dashboard challenges={challenges} />} />
-              <Route
-                path="/challenge/:id"
-                element={
-                  <ChallengeDetail
-                    challenges={challenges}
-                    onUpdate={updateChallengeDays}
-                  />
-                }
-              />
-
+          {/* --- PRIVATE ROUTEN (Geschützt durch ProtectedRoute) --- */}
+          <Route element={<ProtectedRoute />}>
+            {/* MainLayout umschließt die internen Seiten (Navbar/Sidebar) */}
+            <Route element={<MainLayout />}>
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/create" element={<CreateChallenge />} />
+              <Route path="/challenges/:id" element={<ChallengeDetail />} />
               <Route path="/history" element={<History />} />
+            </Route>
+          </Route>
 
-              <Route
-                path="/add"
-                element={<AddChallenge onAdd={handleAddChallenge} />}
-              />
-            </Routes>
-          </main>
-        </div>
+          {/* --- FALLBACK --- */}
+          {/* Unbekannte Pfade leiten zur Landingpage weiter */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </Router>
-    </>
+    </AuthProvider>
   );
 }
-
-export default App;
