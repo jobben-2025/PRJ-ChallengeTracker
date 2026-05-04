@@ -10,3 +10,6 @@ public record CreateChallengeRequest([Required] string Title, ChallengeVisibilit
 public record ProgressRequest([Range(0.01, 1000000)] decimal Amount, string? Note, DateTime? LoggedAt);
 public record MembershipRequest(int ChallengeId);
 public record LeaderboardEntry(string DisplayName, decimal TotalProgress);
+
+// Adil Code
+public record UpdateChallengeProgressRequest(int NewTotal, bool IsFinished);

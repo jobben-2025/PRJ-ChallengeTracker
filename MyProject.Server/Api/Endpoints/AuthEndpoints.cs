@@ -24,8 +24,14 @@ public static class AuthEndpoints {
         group.MapPost("/login", async (LoginRequest req, AppDbContext db, AuthService auth) => {
             var user = await db.Users.FirstOrDefaultAsync(u => u.Email == req.Email);
             if (user == null || !BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash)) return Results.Unauthorized();
-            return Results.Ok(new { Token = auth.GenerateToken(user.Id, user.Email), user.DisplayName, user.Email });
-        }).RequireRateLimiting("write");
+            //Alter Code return Results.Ok(new { /*Token */ token = auth.GenerateToken(user.Id, user.Email), user.DisplayName, user.Email });
+            // Code von Adil
+            return Results.Ok(new { 
+                    token = auth.GenerateToken(user.Id, user.Email), // 'token' statt 'Token'
+                    displayName = user.DisplayName, 
+                    email = user.Email 
+            });
+        });//.RequireRateLimiting("write");
 
         // FR005: Me
         group.MapGet("/me", (ClaimsPrincipal user) => Results.Ok(new { 
